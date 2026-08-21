@@ -1,4 +1,7 @@
-# 初学者学习指南
+# 初学者的 14 章阅读路线
+
+> 本文件用于快速阅读原有 14 章。需要每天可验收的 24 天课程、答辩题、真实设备改造和
+> 简历 Gate，请以 [PORTFOLIO-ROADMAP.md](PORTFOLIO-ROADMAP.md) 为准。
 
 ## 先建立正确目标
 
@@ -57,7 +60,8 @@ uv run --locked python examples/ch13_main_agent_loop.py
 
 每次只做一个可观察改动，例如把示例标签的功率改为 45W，先预测规则应为
 `limited_power`，再运行测试或 Demo 验证。不要一开始替换成真实 OCR、摄像头、云检索和
-多用户 API；先保证每层的输入输出仍然可解释。
+多用户 API；先保证每层的输入输出仍然可解释。完成离线边界学习后，再按 24 天路线的
+Day 19～23 启用正式 PaddleOCR、C++ gRPC 和真实摄像头。
 
 ## 排错顺序
 

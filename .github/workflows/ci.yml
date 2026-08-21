@@ -26,13 +26,13 @@ jobs:
           uv run --locked python scripts/generate_python_proto.py
           git diff --exit-code -- python/src/realsight/generated
       - name: Check formatting
-        run: uv run --locked ruff format --check python/src python/tests examples/ch08_engineering_bootstrap.py examples/ch10_observation_stream.py scripts/generate_python_proto.py scripts/run_ch10_demo.py
+        run: uv run --locked ruff format --check python/src python/tests examples/ch08_engineering_bootstrap.py examples/ch10_observation_stream.py scripts
       - name: Lint
-        run: uv run --locked ruff check python/src python/tests examples/ch08_engineering_bootstrap.py examples/ch10_observation_stream.py scripts/generate_python_proto.py scripts/run_ch10_demo.py
+        run: uv run --locked ruff check python/src python/tests examples/ch08_engineering_bootstrap.py examples/ch10_observation_stream.py scripts
       - name: Type check
         run: uv run --locked mypy
-      - name: Run Python tests
-        run: uv run --locked pytest
+      - name: Run Python tests without optional models or devices
+        run: uv run --locked pytest -m "not integration"
 
   cpp:
     name: C++20 build, tests and Python integration

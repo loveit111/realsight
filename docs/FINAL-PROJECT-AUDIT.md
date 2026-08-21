@@ -1,54 +1,59 @@
-# RealSight 最终项目审计
+# RealSight 项目审计
 
-## 审计结论
+## 结论
 
-**教学型工程 MVP 通过验收。** 项目已经从单图问答演进为可规划、可暂停、可恢复、可
-追踪的主动感知与证据决策系统；它尚不是可直接面向公网或真实硬件结论的生产系统。
+RealSight 已从纯教学骨架扩展为可配置的作品集 Alpha：回放闭环、C++/Python gRPC、真实
+OCR 适配端口、正式 API 装配、治理预算和评测工具均有代码与测试，官方 PP-OCRv6 ONNX
+模型也已完成一次合成图推理冒烟。它仍未完成真实摄像头 30 样本、真实标签 OCR 指标和公开远端 CI，因此暂时适合作为“正在完成真实验收
+的复现并扩展项目”，还不应在简历里填写准确率、实时性或生产级表述。
 
-## 已验证项目
+## 已实现与证据
 
-| 项目 | 结果 |
-|---|---|
-| 第 1-14 章 Python 自动化测试 | 168 项通过 |
-| 第 13 章离线主循环 | 两次 interrupt 后 `conditions_met`，含证据与未知边界 |
-| 第 14 章 API 回放 | HTTP 创建/恢复、WebSocket 事件重放、规则终态通过 |
-| 代码质量 | Ruff 通过，mypy 对 33 个正式源码/测试文件无问题 |
-| C++ 边界 | 已保持原有 C++20/OpenCV/gRPC 运行时；未容器化摄像头 |
-| 双模式 | deterministic 可离线验收；OpenAI 仅在显式 Key 下启用受限规划 |
-
-## 技术栈审计
-
-| 层 | 采用技术 | 选择理由 |
+| 维度 | 当前状态 | 可以如何表述 |
 |---|---|---|
-| C++ 运行时 | C++20、CMake、OpenCV、线程队列 | 实时帧处理和本机硬件适配 |
-| 跨语言契约 | Protobuf、gRPC | 强类型、流式事件、deadline、取消；不传逐帧视频 |
-| Python 领域层 | Python 3.12、Pydantic v2 | 严格 JSON/状态验证和可序列化契约 |
-| 工作流 | LangGraph、checkpoint、interrupt | 可暂停恢复的长任务控制流 |
-| Agent 规划 | Deterministic Planner、OpenAI Responses API tools | 离线可测，真实模型仅选择受限动作 |
-| 视觉证据 | TextRecognizer Protocol、VisionEvidenceAgent | 可替换 OCR/VLM，保留来源和 gap |
-| 决策 | LocalSpecificationCatalog、纯 Python 规则 | 可审计、可重复、不让模型代替逻辑 |
-| 应用接口 | FastAPI、WebSocket、Uvicorn | 浏览器/CLI 任务接口与进度事件 |
-| 持久化 | SQLite、LangGraph SqliteSaver | 单进程教学恢复；非分布式队列 |
-| 工程工具 | uv、pytest、Ruff、mypy、Docker Compose | 锁定环境、测试、静态质量与 Python 服务交付 |
+| 架构与边界 | C++ 感知、Python 证据/工作流、规则 verdict 分离 | 可重点讲设计取舍 |
+| Python 工作流 | interrupt/resume、双 target、规则绑定答案 | 能独立调试后可写 |
+| C++ 感知 | 并发队列、背压、质量、关键帧、停止 | 真实摄像头数字待采集 |
+| gRPC | streaming、deadline、Cancel、结构化失败 | 可写；需现场解释失败语义 |
+| OCR | PaddleOCR 3.x 适配器、坐标/异常/元数据测试 | 可写“接入”，不可写“训练”或虚构准确率 |
+| 正式装配 | `serve.py` 按配置注入 gRPC/OCR并关闭资源 | 默认 unavailable，不伪造结果 |
+| 治理 | capability 与五类预算进入 checkpoint/主循环 | 可写本地工作流护栏，不是分布式限流 |
+| API | FastAPI/SQLite/WebSocket 断线补发 | 本机单进程，无认证/TLS |
+| 评测 | 严格 JSONL、准确率/错误正结论/p50/p95/帧统计 | 工具已完成，真实数据尚未采集 |
+| Git/CI | 本地基线与改造提交、Actions 配置 | 远端公开运行尚未验证 |
 
-## 发现并修正的问题
+## 本轮非参数改造
 
-1. `REQUEST_VIEW Action` 与 `pending_request` 曾没有在同一次状态更新中保存；第 4 章
-   契约测试使该错误立即暴露，现已原子写入。
-2. 错误 Observation 的 request ID 一度可能在图内失败后消费 interrupt；现已在发送
-   `Command(resume=...)` 前验证，客户端可安全重试。
-3. 扩展 capability 配置时曾破坏第 8 章的文本替换兼容测试；现保留原 capability 前缀
-   并追加新权限，168 项回归测试通过。
+1. `PaddleOcrTextRecognizer` 把 PaddleOCR `predict()` 结果归一化为 `TextRegion`，模型只
+   初始化一次；错误进入 `RecognitionFailure`，Evidence metadata 记录 provider、版本、
+   模型、引擎、图片尺寸和推理耗时。
+2. `serve.py` 根据 `[perception]`/`[vision]` 配置创建 gRPC 与 OCR 适配器，注入正式
+   TaskService；C++ 服务保持独立进程，退出时释放 channel、SQLite 和 OCR 资源。
+3. `GovernanceUsage` 随 checkpoint 保存 command/observation/external/cost 用量，主图在
+   迭代、受限 Action、观察、OCR、规格检索和模型调用边界执行策略；超限进入 FAILED。
+4. 设备评测契约和 CLI 从 JSONL 复算字段准确率、错误正结论、端到端 verdict、p50/p95
+   和 produced/consumed/dropped，不允许用 schema 示例冒充成绩。
 
-## 明确未完成项
+## 仍未完成且不能夸大
 
-- 真实 OCR/VLM、真实摄像头和真实 C++ gRPC 端到端设备验收；
-- 人工核验、版本化、授权合规的真实厂商规格资料；
-- USB-C 线缆 e-marker、端口角色、PD 实际协商、多口分配和温度等硬件验证；
-- 用户认证、权限、TLS、CORS、速率限制、密钥托管与审计保留策略；
-- 多实例任务调度、共享事件总线、分布式锁、队列和观测平台；
-- 通用商品识别、通用真伪鉴定、多摄像头、多目标跟踪。
+- PaddleOCR 已在隔离环境完成真实模型冒烟，但输入不是充电器标签，不能提供字段准确率。
+- 尚未用真实摄像头、充电器和笔记本完成固定 30 样本矩阵。
+- 教学规格目录不是授权、持续维护的真实厂商知识库。
+- 规则不验证线缆 e-marker、端口能力、USB PD 动态协商、多口分配或温升。
+- 没有认证、TLS、密钥托管、跨实例事件总线、分布式调度、速率限制和可观测平台。
+- 没有检测/跟踪、稳定 `track_id`、相机位姿、VIO、SLAM 或多摄像头空间状态。
+- GitHub 公开仓库、远端 Actions 徽章和演示视频需要仓库所有者最后确认并发布。
 
-这些不是“稍后再说”的小细节，而是从教学 MVP 走向企业生产系统前必须单独立项和验收
-的工作。当前正确的下一步是先用一个真实、受控、可复核的设备样本替换一份教学夹具，
-而不是扩大问题范围。
+## 简历准入判定
+
+当前代码改造已满足“至少两个非参数改造”和自动化测试的工程部分；真正准入还差：
+
+1. 真实 PaddleOCR 与摄像头完整演示。
+2. 30 条真实记录及脚本生成报告。
+3. 缺失/冲突样本错误正结论为 0。
+4. 一个公开失败样例及修复/限制说明。
+5. 公开 GitHub Actions 绿灯和 2～4 分钟演示。
+6. 30 分钟脱稿答辩与 60 分钟现场小改造。
+
+满足后使用“复现并扩展”，把报告中的真实数字填入简历模板；在此之前可以放在个人学习
+仓库或简历的“项目实践中”，但不要作为最强核心项目声称已经完成真实视觉准确率验收。

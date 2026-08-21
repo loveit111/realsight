@@ -222,7 +222,7 @@ flowchart LR
 项目根目录：
 
 ```text
-C:\Users\Administrator\Documents\Codex\2026-08-01\referenced-chatgpt-conversation-this-is-an\outputs\realsight
+<repo-root>
 ```
 
 章节文档：
@@ -676,7 +676,7 @@ Model: RC-65C
 在项目根目录：
 
 ```powershell
-cd C:\Users\Administrator\Documents\Codex\2026-08-01\referenced-chatgpt-conversation-this-is-an\outputs\realsight
+cd <repo-root>
 ```
 
 常用验证：
@@ -726,4 +726,3 @@ uv run --locked python scripts/run_ch10_demo.py --verify-cancel
 ## 15. 一句话项目定位
 
 RealSight 不是一个“看图回答问题”的玩具项目，而是一个用 C++ 负责实时感知、Python / LangGraph 负责可恢复证据工作流、以 USB-C 充电兼容性为教学案例的主动感知与证据决策系统。
-

@@ -21,11 +21,14 @@ flowchart LR
     APP --> G[LangGraph 主工作流]
     G --> P[Planner: deterministic 或 OpenAI]
     P -->|Action| G
-    G -->|ObservationRequest gRPC| CPP[C++ 感知运行时]
-    CPP -->|关键帧路径与 Observation| G
-    G --> V[视觉 Evidence Agent]
+    G -->|ObservationRequest| GP[gRPC ObservationProvider]
+    GP --> CPP[C++ 感知运行时]
+    CPP -->|关键帧路径与 Observation stream| GP
+    GP --> G
+    G --> V[PaddleOCR + 视觉 Evidence Agent]
     G --> K[本地规格目录]
     G --> R[确定性 USB-C 规则]
+    G --> GOV[Capability 与五类预算]
     G --> DB[(SQLite checkpoint)]
 ```
 
@@ -71,6 +74,10 @@ flowchart LR
 两种模式共享 `Planner -> Action -> workflow` 接口。真实模型只选择允许工具，规则引擎
 仍计算最终 verdict。没有 `OPENAI_API_KEY` 时，离线模式仍可跑通全部课程测试。
 
+感知与视觉同样采用显式 provider：默认 `unavailable` 不伪造结果；真实设备模式将
+`perception.provider=grpc`、`vision.provider=paddleocr`，由正式 `serve.py` 创建、注入
+并在退出时关闭资源。PaddleOCR 属于可选依赖，普通 CI 使用 fake pipeline，不下载模型。
+
 ## 快速验收
 
 ```powershell
@@ -83,5 +90,6 @@ uv run --locked mypy python/src/realsight python/tests
 ```
 
 完整模块职责见 [MODULE-MAP.md](MODULE-MAP.md)，学习顺序见
-[BEGINNER-GUIDE.md](BEGINNER-GUIDE.md)，风险与未完成项见
+[PORTFOLIO-ROADMAP.md](PORTFOLIO-ROADMAP.md)，真实设备评测见
+[REAL-DEVICE-VALIDATION.md](REAL-DEVICE-VALIDATION.md)，风险与未完成项见
 [FINAL-PROJECT-AUDIT.md](FINAL-PROJECT-AUDIT.md)。

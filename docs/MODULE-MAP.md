@@ -18,13 +18,17 @@
 | `contracts/models.py` | 外部 JSON/Protobuf 数据 | Pydantic 契约 | 不做 I/O 或判断 |
 | `perception/grpc_client.py` | ObservationRequest | Observation/进度/失败 | 不做 OCR、规则或存储 |
 | `vision/evidence_agent.py` | accepted Observation + artifact | Evidence/EvidenceGap | 不控制摄像头、不判兼容 |
+| `vision/paddle_ocr.py` | 关键帧路径 | RecognitionDocument | 不解析功率、不形成兼容 verdict |
 | `compatibility/catalog.py` | confirmed laptop_model Evidence | 三条规格 Evidence | 只精确匹配本地资料 |
 | `compatibility/rules.py` | 两个 target 的 Evidence | UsbCCompatibilityResult | 不调用模型、不代表硬件实测 |
+| `governance/policy.py` | capability、上限、已用量 | 新预算快照或拒绝 | 不是认证、计费或分布式限流 |
 | `workflow/planner.py` | MainAgentState | 受限 Action | 不执行工具、不产出 verdict |
 | `workflow/main_agent.py` | checkpoint、Action、恢复载荷 | 新 checkpoint、RunEvent | 不直接处理连续视频 |
 | `workflow/replay.py` | ObservationRequest | 回放或 gRPC Observation | 回放器不是 OCR/真实摄像头 |
 | `application/task_service.py` | 用例请求 | 主工作流状态 | 单进程，不是消息队列 |
 | `application/api.py` | HTTP/WebSocket | JSON 状态与事件 | 无认证的本地教学 API |
+| `application/serve.py` | TOML 配置 | 完整运行时装配 | 不隐式启动 C++ 摄像头服务 |
+| `evaluation/device_dataset.py` | 人工标注 JSONL | 可复算指标 | 不采集数据、不生成真值 |
 
 ## 数据对象如何流动
 
