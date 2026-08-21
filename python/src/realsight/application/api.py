@@ -45,8 +45,12 @@ class CreateTaskRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     session_id: str | None = Field(default=None, min_length=1, max_length=128)
-    charger_target_id: str = Field(default="charger-api-demo", min_length=1, max_length=128)
-    laptop_target_id: str = Field(default="laptop-api-demo", min_length=1, max_length=128)
+    charger_target_id: str = Field(
+        default="charger-api-demo", min_length=1, max_length=128
+    )
+    laptop_target_id: str = Field(
+        default="laptop-api-demo", min_length=1, max_length=128
+    )
     intent: str = Field(
         default="判断 USB-C 充电器与笔记本的已知兼容条件", min_length=1, max_length=1024
     )
@@ -78,7 +82,11 @@ class ResumeTaskRequest(BaseModel):
         if self.kind == "observation":
             if self.observation is None or self.laptop_model is not None:
                 raise ValueError("observation resume requires only observation")
-        elif self.laptop_model is None or self.source_id is None or self.observation is not None:
+        elif (
+            self.laptop_model is None
+            or self.source_id is None
+            or self.observation is not None
+        ):
             raise ValueError("laptop_model resume requires laptop_model and source_id")
         return self
 
@@ -87,7 +95,10 @@ class ResumeTaskRequest(BaseModel):
 
         if self.kind == "observation":
             assert self.observation is not None
-            return {"kind": "observation", "observation": self.observation.model_dump(mode="json")}
+            return {
+                "kind": "observation",
+                "observation": self.observation.model_dump(mode="json"),
+            }
         assert self.laptop_model is not None and self.source_id is not None
         return {
             "kind": "laptop_model",
@@ -121,7 +132,9 @@ def _state_response(service: TaskService, session_id: str) -> dict[str, Any]:
         "laptop_target_id": state.laptop_target.target_id,
         "missing_fields": list(state.missing_fields),
         "pending_action": (
-            state.pending_actions[0].model_dump(mode="json") if state.pending_actions else None
+            state.pending_actions[0].model_dump(mode="json")
+            if state.pending_actions
+            else None
         ),
         "interrupt_id": service.current_interrupt_id(session_id),
         "lookup_status": state.lookup_status.value if state.lookup_status else None,
@@ -132,6 +145,7 @@ def _state_response(service: TaskService, session_id: str) -> dict[str, Any]:
         ),
         "final_answer": state.final_answer,
         "event_count": len(state.events),
+        "governance": state.governance_usage.model_dump(mode="json"),
     }
 
 
@@ -177,7 +191,9 @@ def create_app(service: TaskService | None = None) -> FastAPI:
             raise _http_error(exc) from exc
 
     @app.post("/api/v1/tasks/{session_id}/resume")
-    async def resume_task(session_id: str, request: ResumeTaskRequest) -> dict[str, Any]:
+    async def resume_task(
+        session_id: str, request: ResumeTaskRequest
+    ) -> dict[str, Any]:
         """恢复当前 interrupt；第 13 章会再次校验请求 ID、目标和视角。"""
 
         try:
@@ -192,7 +208,9 @@ def create_app(service: TaskService | None = None) -> FastAPI:
             raise _http_error(exc) from exc
 
     @app.post("/api/v1/tasks/{session_id}/cancel")
-    async def cancel_task(session_id: str, request: CancelTaskRequest) -> dict[str, Any]:
+    async def cancel_task(
+        session_id: str, request: CancelTaskRequest
+    ) -> dict[str, Any]:
         """取消任务并在有 C++ provider 时尽力转发 Cancel RPC。"""
 
         try:
@@ -204,7 +222,9 @@ def create_app(service: TaskService | None = None) -> FastAPI:
             raise _http_error(exc) from exc
 
     @app.websocket("/api/v1/tasks/{session_id}/events")
-    async def task_events(websocket: WebSocket, session_id: str, after_sequence: int = 0) -> None:
+    async def task_events(
+        websocket: WebSocket, session_id: str, after_sequence: int = 0
+    ) -> None:
         """从 checkpoint 补发事件并轮询新事件；单进程 MVP 不需要额外消息代理。"""
 
         await websocket.accept()

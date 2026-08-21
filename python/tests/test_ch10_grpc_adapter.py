@@ -33,6 +33,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 import pytest
 from realsight.contracts import (
@@ -44,10 +45,14 @@ from realsight.contracts import (
 from realsight.doctor import CheckStatus, check_rpc_toolchain
 from realsight.generated import realsight_pb2
 from realsight.perception.grpc_client import (
+    PerceptionClient,
+    PerceptionFailure,
     PerceptionProgress,
+    StreamItem,
     request_to_proto,
     stream_item_from_proto,
 )
+from realsight.workflow.replay import GrpcObservationProvider
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 NOW_MS = int(datetime(2026, 8, 17, 12, 0, tzinfo=UTC).timestamp() * 1_000)
@@ -196,3 +201,69 @@ def test_doctor_sees_real_protobuf_and_grpc_tools() -> None:
 
     assert result.status is CheckStatus.PASS
     assert "grpc_cpp_plugin" in result.detail
+
+
+class FakeProviderClient:
+    """让 GrpcObservationProvider 的边界分支无需真实端口即可稳定复现。"""
+
+    def __init__(
+        self,
+        items: tuple[StreamItem, ...] = (),
+        error: Exception | None = None,
+    ) -> None:
+        self.items = items
+        self.error = error
+        self.cancelled: tuple[str, str] | None = None
+
+    def observe(self, request: ObservationRequest) -> object:
+        if self.error is not None:
+            raise self.error
+        return iter(self.items)
+
+    def cancel(self, request_id: str, reason: str) -> bool:
+        self.cancelled = (request_id, reason)
+        return True
+
+    def close(self) -> None:
+        return None
+
+
+def test_grpc_provider_reports_structured_failure_and_missing_observation() -> None:
+    failure = PerceptionFailure(
+        event_id="event-failure",
+        request_id=make_request().request_id,
+        sequence=1,
+        occurred_at=datetime.now(UTC),
+        code="NO_ACCEPTED_FRAME",
+        message="source ended",
+        retryable=True,
+    )
+    failed_provider = GrpcObservationProvider(
+        cast(PerceptionClient, FakeProviderClient((failure,)))
+    )
+    with pytest.raises(RuntimeError, match="NO_ACCEPTED_FRAME"):
+        failed_provider.observe(make_request())
+
+    empty_provider = GrpcObservationProvider(
+        cast(PerceptionClient, FakeProviderClient())
+    )
+    with pytest.raises(RuntimeError, match="without an accepted"):
+        empty_provider.observe(make_request())
+
+
+@pytest.mark.parametrize(
+    "error", [TimeoutError("deadline"), ConnectionError("disconnect")]
+)
+def test_grpc_provider_propagates_timeout_and_disconnect(error: Exception) -> None:
+    provider = GrpcObservationProvider(
+        cast(PerceptionClient, FakeProviderClient(error=error))
+    )
+    with pytest.raises(type(error), match=str(error)):
+        provider.observe(make_request())
+
+
+def test_grpc_provider_forwards_cancel_rpc() -> None:
+    fake_client = FakeProviderClient()
+    provider = GrpcObservationProvider(cast(PerceptionClient, fake_client))
+    assert provider.cancel("request-cancel", "user_cancelled")
+    assert fake_client.cancelled == ("request-cancel", "user_cancelled")

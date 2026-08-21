@@ -30,6 +30,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 from realsight.application.api import create_app
 from realsight.application.task_service import TaskService
@@ -37,6 +38,7 @@ from realsight.compatibility import LocalSpecificationCatalog, UsbCCompatibility
 from realsight.vision import VisionEvidenceAgent
 from realsight.workflow import DeterministicPlanner, MainAgentDependencies
 from realsight.workflow.replay import ReplayObservationProvider, ScriptedLabelRecognizer
+from starlette.websockets import WebSocketDisconnect
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CATALOG_PATH = PROJECT_ROOT / "test-data" / "ch12" / "laptop-specifications.json"
@@ -61,11 +63,14 @@ def dependencies() -> MainAgentDependencies:
     )
 
 
-def test_api_replays_events_resumes_and_returns_rule_bound_result(tmp_path: Path) -> None:
+def test_api_replays_events_resumes_and_returns_rule_bound_result(
+    tmp_path: Path,
+) -> None:
     """创建任务后自动回放标签观察，WebSocket 可重放事件，型号恢复后才会完成。"""
 
     service = TaskService.with_memory(
-        dependencies(), observation_provider=ReplayObservationProvider(write_image(tmp_path))
+        dependencies(),
+        observation_provider=ReplayObservationProvider(write_image(tmp_path)),
     )
     client = TestClient(create_app(service))
     created = client.post(
@@ -83,11 +88,11 @@ def test_api_replays_events_resumes_and_returns_rule_bound_result(tmp_path: Path
     assert waiting["compatibility"] is None
 
     with client.websocket_connect(
-        "/api/v1/tasks/session-ch14-api/events?after_sequence=0"
+        "/api/v1/tasks/session-ch14-api/events?after_sequence=1"
     ) as websocket:
         event = websocket.receive_json()
-    assert event["sequence"] == 1
-    assert event["event_type"] == "model_decision"
+    assert event["sequence"] == 2
+    assert event["event_type"] == "action_required"
 
     completed = client.post(
         "/api/v1/tasks/session-ch14-api/resume",
@@ -104,6 +109,15 @@ def test_api_replays_events_resumes_and_returns_rule_bound_result(tmp_path: Path
     assert body["compatibility"]["verdict"] == "conditions_met"
     assert body["interrupt_id"] is None
     assert "条件" in body["final_answer"]
+
+    with (
+        client.websocket_connect(
+            f"/api/v1/tasks/session-ch14-api/events?after_sequence={body['event_count']}"
+        ) as websocket,
+        pytest.raises(WebSocketDisconnect) as closed,
+    ):
+        websocket.receive_json()
+    assert closed.value.code == 1000
 
 
 def test_api_cancel_rejects_old_resume() -> None:

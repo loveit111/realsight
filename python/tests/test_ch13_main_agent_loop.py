@@ -72,7 +72,9 @@ def dependencies() -> MainAgentDependencies:
     )
 
 
-def test_main_agent_pauses_twice_then_completes_rule_bound_answer(tmp_path: Path) -> None:
+def test_main_agent_pauses_twice_then_completes_rule_bound_answer(
+    tmp_path: Path,
+) -> None:
     """观察和用户型号都必须经过 interrupt；规则结果到位后才允许 completed。"""
 
     state = initial_state(
@@ -95,7 +97,10 @@ def test_main_agent_pauses_twice_then_completes_rule_bound_answer(tmp_path: Path
         graph,
         thread_id=state.session.thread_id,
         interrupt_id=observation_interrupt.id,
-        payload={"kind": "observation", "observation": observation.model_dump(mode="json")},
+        payload={
+            "kind": "observation",
+            "observation": observation.model_dump(mode="json"),
+        },
     )
     assert waiting_user.session.status.value == "waiting_user"
     assert {"charger_max_power_w", "charger_protocol"} <= set(
@@ -120,7 +125,9 @@ def test_main_agent_pauses_twice_then_completes_rule_bound_answer(tmp_path: Path
     assert "conditions_met" in completed.final_answer
     assert completed.laptop_model_evidence is not None
     assert completed.laptop_model_evidence.target_id == "laptop-ch13-test"
-    assert all(event.sequence == index + 1 for index, event in enumerate(completed.events))
+    assert all(
+        event.sequence == index + 1 for index, event in enumerate(completed.events)
+    )
 
 
 def test_wrong_observation_resume_keeps_interrupt_available(tmp_path: Path) -> None:
@@ -136,7 +143,9 @@ def test_wrong_observation_resume_keeps_interrupt_available(tmp_path: Path) -> N
     waiting = get_state(graph, state.session.thread_id)
     active = get_active_interrupt(graph, state.session.thread_id)
     assert waiting.pending_request is not None
-    wrong = ReplayObservationProvider(write_image(tmp_path)).observe(waiting.pending_request)
+    wrong = ReplayObservationProvider(write_image(tmp_path)).observe(
+        waiting.pending_request
+    )
     wrong = wrong.model_copy(update={"request_id": "other-request"})
 
     with pytest.raises(ValueError, match="request_id"):
@@ -144,7 +153,10 @@ def test_wrong_observation_resume_keeps_interrupt_available(tmp_path: Path) -> N
             graph,
             thread_id=state.session.thread_id,
             interrupt_id=active.id,
-            payload={"kind": "observation", "observation": wrong.model_dump(mode="json")},
+            payload={
+                "kind": "observation",
+                "observation": wrong.model_dump(mode="json"),
+            },
         )
     assert get_active_interrupt(graph, state.session.thread_id).id == active.id
 
@@ -169,7 +181,11 @@ def test_cancelled_task_rejects_future_resume() -> None:
             graph,
             thread_id=state.session.thread_id,
             interrupt_id=active.id,
-            payload={"kind": "laptop_model", "value": "ExampleBook 13", "source_id": "x"},
+            payload={
+                "kind": "laptop_model",
+                "value": "ExampleBook 13",
+                "source_id": "x",
+            },
         )
 
 

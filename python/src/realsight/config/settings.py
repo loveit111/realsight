@@ -19,7 +19,7 @@ RealSight 第 8 章配置模块：把 TOML 文件和环境变量变成经过校�
 --------
 ``load_settings(path, environ)``
     -> 读取并解析 TOML
-    -> 检查顶层只包含 runtime/governance
+    -> 检查顶层只包含 runtime/agent/perception/vision/governance
     -> 应用明确允许的 REALSIGHT_* 覆盖
     -> AppSettings.model_validate()
     -> 把相对 data_dir 锚定到配置文件所在目录
@@ -63,7 +63,7 @@ class RuntimeSettings(BaseModel):
 
 
 class GovernanceSettings(BaseModel):
-    """第 7 章治理策略的配置形状；本章只加载，不执行预算扣减。"""
+    """正式主循环会执行的 capability、外部调用和成本预算配置。"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -101,6 +101,34 @@ class AgentSettings(BaseModel):
     max_iterations: int = Field(default=12, ge=1, le=50)
 
 
+class PerceptionSettings(BaseModel):
+    """Python 应用如何取得 Observation；C++ 服务仍由独立进程拥有摄像头。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    provider: Literal["unavailable", "grpc"] = "unavailable"
+    address: str = Field(default="127.0.0.1:50051", min_length=1, max_length=255)
+
+    @field_validator("address")
+    @classmethod
+    def address_has_host_and_port(cls, value: str) -> str:
+        """教学 MVP 接受 host:port；TLS URI 与服务发现留给生产部署。"""
+
+        if ":" not in value or value.startswith(":") or value.endswith(":"):
+            raise ValueError("perception address must use host:port syntax")
+        return value
+
+
+class VisionSettings(BaseModel):
+    """单张关键帧的文字识别后端；重型依赖只在显式启用时加载。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    provider: Literal["unavailable", "paddleocr"] = "unavailable"
+    engine: Literal["onnxruntime"] = "onnxruntime"
+    ocr_version: str = Field(default="PP-OCRv6", min_length=1, max_length=64)
+
+
 class AppSettings(BaseModel):
     """RealSight Python 进程启动后使用的完整、不可变配置快照。"""
 
@@ -108,6 +136,8 @@ class AppSettings(BaseModel):
 
     runtime: RuntimeSettings
     agent: AgentSettings = Field(default_factory=AgentSettings)
+    perception: PerceptionSettings = Field(default_factory=PerceptionSettings)
+    vision: VisionSettings = Field(default_factory=VisionSettings)
     governance: GovernanceSettings
 
 
@@ -119,6 +149,11 @@ _ENVIRONMENT_OVERRIDES: dict[str, tuple[str, str, type[str] | type[int]]] = {
     "REALSIGHT_AGENT_PROVIDER": ("agent", "provider", str),
     "REALSIGHT_OPENAI_MODEL": ("agent", "openai_model", str),
     "REALSIGHT_REASONING_EFFORT": ("agent", "reasoning_effort", str),
+    "REALSIGHT_PERCEPTION_PROVIDER": ("perception", "provider", str),
+    "REALSIGHT_PERCEPTION_ADDRESS": ("perception", "address", str),
+    "REALSIGHT_VISION_PROVIDER": ("vision", "provider", str),
+    "REALSIGHT_OCR_ENGINE": ("vision", "engine", str),
+    "REALSIGHT_OCR_VERSION": ("vision", "ocr_version", str),
     "REALSIGHT_MAX_COMMANDS": ("governance", "max_commands", int),
     "REALSIGHT_MAX_OBSERVATIONS": ("governance", "max_observations", int),
     "REALSIGHT_MAX_EXTERNAL_ATTEMPTS": (
@@ -195,6 +230,8 @@ __all__ = [
     "AgentSettings",
     "ConfigurationError",
     "GovernanceSettings",
+    "PerceptionSettings",
     "RuntimeSettings",
+    "VisionSettings",
     "load_settings",
 ]

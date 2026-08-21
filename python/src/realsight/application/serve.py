@@ -37,14 +37,60 @@ import uvicorn
 
 from realsight.application.api import create_app
 from realsight.application.task_service import TaskService
-from realsight.config import load_settings
+from realsight.config import AppSettings, load_settings
+from realsight.governance import GovernanceUsage
+from realsight.perception import PerceptionClient
+from realsight.vision import PaddleOcrTextRecognizer, TextRecognizer
 from realsight.workflow.planner import planner_from_settings
+from realsight.workflow.replay import (
+    GrpcObservationProvider,
+    ObservationProvider,
+    UnavailableTextRecognizer,
+)
 
 
 def _project_root() -> Path:
     """定位工程根目录，确保默认配置和教学资料路径不受当前工作目录影响。"""
 
     return Path(__file__).resolve().parents[4]
+
+
+def _recognizer_from_settings(settings: AppSettings) -> TextRecognizer:
+    """显式选择真实 OCR 或诚实的不可用实现；不会静默回退到脚本夹具。"""
+
+    if settings.vision.provider == "unavailable":
+        return UnavailableTextRecognizer()
+    return PaddleOcrTextRecognizer(
+        engine=settings.vision.engine,
+        ocr_version=settings.vision.ocr_version,
+    )
+
+
+def _observation_provider_from_settings(
+    settings: AppSettings,
+) -> ObservationProvider | None:
+    """只连接已在独立进程中启动的本机 C++ 服务，不隐式占用摄像头。"""
+
+    if settings.perception.provider == "unavailable":
+        return None
+    return GrpcObservationProvider(
+        PerceptionClient(address=settings.perception.address)
+    )
+
+
+def _governance_from_settings(settings: AppSettings) -> GovernanceUsage:
+    """把已经验证的部署配置冻结为每个新任务的 checkpoint 初始预算。"""
+
+    policy = settings.governance
+    return GovernanceUsage(
+        policy_id=policy.policy_id,
+        allowed_capabilities=policy.allowed_capabilities,
+        max_iterations=settings.agent.max_iterations,
+        max_commands=policy.max_commands,
+        max_observations=policy.max_observations,
+        max_external_attempts=policy.max_external_attempts,
+        max_cost_units=policy.max_cost_units,
+    )
 
 
 def main() -> int:
@@ -65,14 +111,29 @@ def main() -> int:
         settings.agent.openai_model,
         settings.agent.reasoning_effort,
     )
-    dependencies = TaskService.default_dependencies(_project_root(), planner=planner)
+    recognizer = _recognizer_from_settings(settings)
+    observation_provider = _observation_provider_from_settings(settings)
+    dependencies = TaskService.default_dependencies(
+        _project_root(),
+        planner=planner,
+        recognizer=recognizer,
+        planner_cost_units=(1 if settings.agent.provider == "openai" else 0),
+    )
     service = TaskService.with_sqlite(
-        settings.runtime.data_dir / "realsight-checkpoints.sqlite3", dependencies
+        settings.runtime.data_dir / "realsight-checkpoints.sqlite3",
+        dependencies,
+        observation_provider=observation_provider,
+        governance_usage=_governance_from_settings(settings),
     )
     try:
-        uvicorn.run(create_app(service), host=args.host, port=args.port, log_level="info")
+        uvicorn.run(
+            create_app(service), host=args.host, port=args.port, log_level="info"
+        )
     finally:
         service.close()
+        close_recognizer = getattr(recognizer, "close", None)
+        if callable(close_recognizer):
+            close_recognizer()
     return 0
 
 

@@ -10,6 +10,17 @@ openai_model = "gpt-5.6-terra"
 reasoning_effort = "medium"
 max_iterations = 12
 
+# 正式真实设备模式将 provider 改为 grpc；C++ 服务仍作为独立本机进程启动。
+[perception]
+provider = "unavailable"
+address = "127.0.0.1:50051"
+
+# 安装 `uv sync --extra ocr` 后可选择 paddleocr。默认 unavailable 会诚实报告缺口。
+[vision]
+provider = "unavailable"
+engine = "onnxruntime"
+ocr_version = "PP-OCRv6"
+
 [governance]
 policy_id = "local-teaching-v1"
 allowed_capabilities = ["perception.observe", "rules.usb_c",

@@ -15,17 +15,23 @@ Python 包转发、标准库 ``tomllib`` 与 Pydantic v2；具体实现位于 ``
 """
 
 from realsight.config.settings import (
+    AgentSettings,
     AppSettings,
     ConfigurationError,
     GovernanceSettings,
+    PerceptionSettings,
     RuntimeSettings,
+    VisionSettings,
     load_settings,
 )
 
 __all__ = [
+    "AgentSettings",
     "AppSettings",
     "ConfigurationError",
     "GovernanceSettings",
+    "PerceptionSettings",
     "RuntimeSettings",
+    "VisionSettings",
     "load_settings",
 ]
