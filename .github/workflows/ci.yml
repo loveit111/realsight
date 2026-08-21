@@ -1,0 +1,61 @@
+name: RealSight CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python 3.12 quality gates
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.30"
+          enable-cache: true
+      - name: Install locked environment
+        run: uv sync --locked --all-groups
+      - name: Verify generated Python protocol code
+        run: |
+          uv run --locked python scripts/generate_python_proto.py
+          git diff --exit-code -- python/src/realsight/generated
+      - name: Check formatting
+        run: uv run --locked ruff format --check python/src python/tests examples/ch08_engineering_bootstrap.py examples/ch10_observation_stream.py scripts/generate_python_proto.py scripts/run_ch10_demo.py
+      - name: Lint
+        run: uv run --locked ruff check python/src python/tests examples/ch08_engineering_bootstrap.py examples/ch10_observation_stream.py scripts/generate_python_proto.py scripts/run_ch10_demo.py
+      - name: Type check
+        run: uv run --locked mypy
+      - name: Run Python tests
+        run: uv run --locked pytest
+
+  cpp:
+    name: C++20 build, tests and Python integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Install C++ perception and RPC development packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libopencv-dev libgrpc++-dev libprotobuf-dev protobuf-compiler protobuf-compiler-grpc libssl-dev zlib1g-dev
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.30"
+          enable-cache: true
+      - name: Install locked Python environment
+        run: uv sync --locked --all-groups
+      - name: Configure
+        run: cmake -S . -B build/ci -DCMAKE_BUILD_TYPE=Debug
+      - name: Build
+        run: cmake --build build/ci --parallel 2
+      - name: Test
+        run: ctest --test-dir build/ci --output-on-failure
+      - name: Run C++ to Python gRPC demo
+        run: uv run --locked python scripts/run_ch10_demo.py --build-dir build/ci/cpp

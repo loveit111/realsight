@@ -1,0 +1,21 @@
+# Python environments and generated files
+.venv/
+.uv-cache/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build and runtime outputs
+build/
+dist/
+*.egg-info/
+runtime-data/
+CMakeUserPresets.json
+
+# IDE and operating-system files
+.idea/
+.DS_Store
+Thumbs.db
+NUL

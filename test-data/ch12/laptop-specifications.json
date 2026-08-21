@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "catalog_id": "teaching-spec-catalog-v1",
+  "records": [
+    {
+      "schema_version": 1,
+      "model_id": "examplebook-13",
+      "display_name": "ExampleBook 13",
+      "aliases": ["ExampleBook 13", "EB13"],
+      "minimum_power_w": 45.0,
+      "recommended_power_w": 65.0,
+      "required_protocols": ["usb_pd"],
+      "source_document_id": "examplebook-13-teaching-manual",
+      "source_revision": "teaching-fixture-2026-08",
+      "source_checked_at": "2026-08-20T00:00:00Z",
+      "confidence": 0.95
+    },
+    {
+      "schema_version": 1,
+      "model_id": "examplework-15",
+      "display_name": "ExampleWork 15",
+      "aliases": ["ExampleWork 15", "EW15"],
+      "minimum_power_w": 65.0,
+      "recommended_power_w": 100.0,
+      "required_protocols": ["usb_pd"],
+      "source_document_id": "examplework-15-teaching-manual",
+      "source_revision": "teaching-fixture-2026-08",
+      "source_checked_at": "2026-08-20T00:00:00Z",
+      "confidence": 0.95
+    }
+  ]
+}

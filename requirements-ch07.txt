@@ -1,0 +1,3 @@
+# 第 7 章只复用已有 asyncio、SQLite、Pydantic 和 LangGraph 依赖，不增加新框架。
+# 第 8 章会把第 1～7 章的已验证版本统一迁移到 pyproject.toml + uv.lock。
+-r requirements-ch06.txt

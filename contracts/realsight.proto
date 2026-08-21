@@ -1,0 +1,111 @@
+syntax = "proto3";
+
+package realsight.v1;
+
+// 第 4 章只固化 Python Agent 与未来 C++ 感知运行时之间的传输边界。
+// Evidence、BeliefState 和 Action 属于 Python 业务层，不应为了“统一”而跨进程发送。
+
+enum ViewType {
+  VIEW_TYPE_UNSPECIFIED = 0;
+  VIEW_TYPE_FULL_OBJECT = 1;
+  VIEW_TYPE_FRONT_LABEL = 2;
+  VIEW_TYPE_BACK_LABEL = 3;
+  VIEW_TYPE_PORT_CLOSEUP = 4;
+}
+
+enum ObservationStatus {
+  OBSERVATION_STATUS_UNSPECIFIED = 0;
+  OBSERVATION_STATUS_ACCEPTED = 1;
+  OBSERVATION_STATUS_REJECTED = 2;
+  OBSERVATION_STATUS_FAILED = 3;
+}
+
+// Python 发给 C++ 的主动观察要求。低编号留给最常使用的字段。
+message ObservationRequest {
+  uint32 schema_version = 1;
+  string request_id = 2;
+  string session_id = 3;
+  string target_id = 4;
+  ViewType view_type = 5;
+  repeated string required_features = 6;
+  string instruction = 7;
+  string reason = 8;
+  uint32 timeout_ms = 9;
+  optional string correlation_id = 10;
+}
+
+// C++ 计算的画面质量指标。optional 用于区分“没有计算”和真实的 0 分。
+message QualitySignals {
+  optional double overall_score = 1;
+  optional double sharpness = 2;
+  optional double exposure = 3;
+  // 抗反光质量：0 表示强反光，1 表示几乎没有反光；与其他分数保持“越大越好”。
+  optional double glare = 4;
+  optional double target_ratio = 5;
+}
+
+// C++ 返回的观察元数据。只传路径和局部特征，不逐帧传输整段视频。
+message Observation {
+  uint32 schema_version = 1;
+  string observation_id = 2;
+  string request_id = 3;
+  string target_id = 4;
+  ViewType view_type = 5;
+  optional int64 captured_at_unix_ms = 6;
+  QualitySignals quality = 7;
+  repeated string local_features = 8;
+  optional string image_path = 9;
+  ObservationStatus status = 10;
+  optional string failure_reason = 11;
+  // 第 10 章新增的可追踪源位置。新增字段不修改既有编号，旧客户端会安全忽略它们。
+  optional uint64 source_frame_sequence = 12;
+  optional int64 source_position_ms = 13;
+}
+
+// 服务端流式返回的中间进度。百分比是 0～100 的整数，语义校验仍由适配层负责。
+message ObservationProgress {
+  string request_id = 1;
+  string target_id = 2;
+  string stage = 3;
+  uint32 progress_percent = 4;
+  string message = 5;
+}
+
+message ObservationFailure {
+  string request_id = 1;
+  string target_id = 2;
+  string code = 3;
+  string message = 4;
+  bool retryable = 5;
+}
+
+// oneof 保证一次流事件只能是进度、最终观察或失败中的一种。
+message ObservationEvent {
+  uint32 schema_version = 1;
+  string event_id = 2;
+  string request_id = 3;
+  uint64 sequence = 4;
+  int64 occurred_at_unix_ms = 5;
+
+  oneof payload {
+    ObservationProgress progress = 10;
+    Observation observation = 11;
+    ObservationFailure failure = 12;
+  }
+}
+
+message CancelObservationRequest {
+  string request_id = 1;
+  string reason = 2;
+}
+
+message CancelObservationResponse {
+  string request_id = 1;
+  bool accepted = 2;
+}
+
+// 第 10 章将用这个服务生成 C++/Python gRPC stub 并连接真实感知运行时。
+service PerceptionRuntime {
+  rpc Observe(ObservationRequest) returns (stream ObservationEvent);
+  rpc Cancel(CancelObservationRequest) returns (CancelObservationResponse);
+}

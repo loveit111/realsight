@@ -1,0 +1,5 @@
+# 第 4 章经过实际验证的依赖版本。第 8 章会迁移到正式 pyproject.toml + uv.lock。
+pydantic==2.13.4
+protobuf==6.33.6
+grpcio-tools==1.81.1
+langgraph==1.2.10

@@ -1,0 +1,10 @@
+.git
+.venv
+build
+runtime-data
+__pycache__
+*.pyc
+examples
+docs
+python/tests
+tests

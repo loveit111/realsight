@@ -1,0 +1,20 @@
+# 第 8 章只定义“配置从哪里来”，不提前加入摄像头或模型密钥。
+[runtime]
+data_dir = "../runtime-data"
+log_level = "INFO"
+
+# 默认离线可运行。要调用真实 OpenAI 模型时，改为 openai 并设置 OPENAI_API_KEY。
+[agent]
+provider = "deterministic"
+openai_model = "gpt-5.6-terra"
+reasoning_effort = "medium"
+max_iterations = 12
+
+[governance]
+policy_id = "local-teaching-v1"
+allowed_capabilities = ["perception.observe", "rules.usb_c",
+  "specification.retrieve", "model.plan"]
+max_commands = 8
+max_observations = 4
+max_external_attempts = 12
+max_cost_units = 20

@@ -1,0 +1,62 @@
+[project]
+name = "realsight"
+version = "0.1.0"
+description = "Evidence-driven active perception teaching project"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+classifiers = ["Private :: Do Not Upload"]
+dependencies = [
+    "fastapi==0.128.0",
+    "grpcio-tools==1.81.1",
+    "langgraph==1.2.10",
+    "langgraph-checkpoint-sqlite==3.1.0",
+    "openai==2.21.0",
+    "protobuf==6.33.6",
+    "pydantic==2.13.4",
+    "uvicorn[standard]==0.40.0",
+]
+
+[project.scripts]
+realsight-doctor = "realsight.cli:main"
+realsight-api = "realsight.application.serve:main"
+
+[dependency-groups]
+dev = [
+    "cmake==4.4.2",
+    "httpx==0.28.1",
+    "mypy==2.3.0",
+    "pytest==9.1.1",
+    "ruff==0.15.22",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.30,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv]
+required-version = ">=0.11.30,<0.12"
+
+[tool.uv.build-backend]
+module-root = "python/src"
+source-include = ["contracts/**"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers"
+testpaths = ["python/tests", "tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+extend-exclude = ["examples", "tests", "contracts", "python/src/realsight/generated"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["python/src/realsight", "python/tests"]
+exclude = [
+    "python/src/realsight/contracts/models.py",
+    "python/src/realsight/generated/",
+]

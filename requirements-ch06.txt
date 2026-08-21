@@ -1,0 +1,4 @@
+# 第 6 章在第 4～5 章依赖之上增加本地 SQLite checkpointer。
+# 第 8 章会把这些经过验证的版本迁移到正式 pyproject.toml 与 uv.lock。
+-r requirements-ch04.txt
+langgraph-checkpoint-sqlite==3.1.0

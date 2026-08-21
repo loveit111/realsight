@@ -1,0 +1,14 @@
+# 第 14 章单进程 API 示例。不要把 C++ 摄像头运行时加入此 Compose 文件。
+services:
+  realsight-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      REALSIGHT_AGENT_PROVIDER: "${REALSIGHT_AGENT_PROVIDER:-deterministic}"
+      REALSIGHT_OPENAI_MODEL: "${REALSIGHT_OPENAI_MODEL:-gpt-5.6-terra}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+    volumes:
+      - ./runtime-data:/app/runtime-data
