@@ -35,11 +35,13 @@ from .evidence_agent import (
     VisionEvidenceAgent,
     VisionExtraction,
 )
+from .paddle_ocr import PaddleOcrTextRecognizer
 
 __all__ = [
     "EvidenceGap",
     "RecognitionDocument",
     "RecognitionFailure",
+    "PaddleOcrTextRecognizer",
     "TextRecognizer",
     "TextRegion",
     "VisionEvidenceAgent",

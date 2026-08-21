@@ -46,7 +46,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol
 
-from pydantic import JsonValue, field_validator, model_validator
+from pydantic import Field, JsonValue, field_validator, model_validator
 
 from realsight.contracts import (
     Evidence,
@@ -89,6 +89,7 @@ class RecognitionDocument(StrictContract):
     schema_version: Literal[1] = 1
     observation_id: Identifier
     regions: tuple[TextRegion, ...]
+    provider_metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
     @field_validator("regions")
     @classmethod
@@ -369,6 +370,7 @@ class VisionEvidenceAgent:
             regions=document.regions,
             normalizer="label_text_join",
             extra_metadata={},
+            provider_metadata=document.provider_metadata,
         )
 
     def _extract_max_power(
@@ -423,6 +425,7 @@ class VisionEvidenceAgent:
                             {candidate.watts for candidate in profile_candidates}
                         ),
                     },
+                    provider_metadata=document.provider_metadata,
                 ),
                 None,
             )
@@ -439,6 +442,7 @@ class VisionEvidenceAgent:
                             {candidate.watts for candidate in profile_candidates}
                         )
                     },
+                    provider_metadata=document.provider_metadata,
                 ),
                 None,
             )
@@ -451,6 +455,7 @@ class VisionEvidenceAgent:
                     regions=direct_max.regions,
                     normalizer="single_explicit_wattage",
                     extra_metadata={},
+                    provider_metadata=document.provider_metadata,
                 ),
                 None,
             )
@@ -510,6 +515,7 @@ class VisionEvidenceAgent:
                 extra_metadata={
                     "extensions": self._json_strings(self._ordered_unique(extensions))
                 },
+                provider_metadata=document.provider_metadata,
             ),
             None,
         )
@@ -523,6 +529,7 @@ class VisionEvidenceAgent:
         regions: tuple[TextRegion, ...],
         normalizer: str,
         extra_metadata: dict[str, JsonValue],
+        provider_metadata: dict[str, JsonValue],
     ) -> Evidence:
         """统一构造带文字框、原文和置信度来源的 Evidence。"""
 
@@ -546,6 +553,7 @@ class VisionEvidenceAgent:
             regions,
             normalizer=normalizer,
             extra_metadata=extra_metadata,
+            provider_metadata=provider_metadata,
         )
         digest_input = f"{observation.observation_id}|{field}|{value!r}".encode()
         evidence_id = "evidence-vision-" + hashlib.sha256(digest_input).hexdigest()[:16]
@@ -569,6 +577,7 @@ class VisionEvidenceAgent:
         *,
         normalizer: str,
         extra_metadata: dict[str, JsonValue],
+        provider_metadata: dict[str, JsonValue],
     ) -> dict[str, JsonValue]:
         """把区域坐标与原文装入 JSON 元数据，证据账本无需再次读取图片也能审计。"""
 
@@ -587,6 +596,7 @@ class VisionEvidenceAgent:
             "observation_quality": observation.quality.overall_score,
             "normalizer": normalizer,
             "regions": region_records,
+            "recognizer": dict(provider_metadata),
         }
         metadata.update(extra_metadata)
         return metadata
