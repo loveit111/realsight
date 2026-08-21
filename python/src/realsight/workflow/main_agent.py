@@ -74,6 +74,7 @@ from realsight.contracts import (
     TrackingStatus,
     ViewType,
 )
+from realsight.governance import GovernanceUsage, GovernanceViolation
 from realsight.vision import VisionEvidenceAgent
 from realsight.workflow.models import (
     LaptopModelPause,
@@ -99,6 +100,12 @@ class MainAgentDependencies:
     catalog: LocalSpecificationCatalog
     vision_agent: VisionEvidenceAgent
     rules: UsbCCompatibilityRules
+    # deterministic 规划不消耗模型成本；真实 OpenAI 每次规划按一个相对成本单位计。
+    planner_cost_units: int = 0
+
+    def __post_init__(self) -> None:
+        if self.planner_cost_units < 0:
+            raise ValueError("planner_cost_units must not be negative")
 
 
 def make_checkpoint_serializer() -> JsonPlusSerializer:
@@ -133,6 +140,7 @@ def make_checkpoint_serializer() -> JsonPlusSerializer:
         RunEvent,
         MainAgentState,
         UsbCCompatibilityResult,
+        GovernanceUsage,
     )
     return JsonPlusSerializer(allowed_msgpack_modules=allowed_types)
 
@@ -151,6 +159,7 @@ def initial_state(
     charger_target_id: str,
     laptop_target_id: str,
     intent: str = "判断 USB-C 充电器与指定笔记本的已知兼容条件",
+    governance_usage: GovernanceUsage | None = None,
 ) -> MainAgentState:
     """构造双目标任务的干净起点；规则字段未知而非被错误地填为零。"""
 
@@ -180,6 +189,7 @@ def initial_state(
             category="laptop",
             tracking_status=TrackingStatus.ACTIVE,
         ),
+        governance_usage=governance_usage or GovernanceUsage(),
     )
 
 
@@ -198,7 +208,9 @@ def get_active_interrupt(graph: Any, thread_id: str) -> Interrupt:
     snapshot = graph.get_state(graph_config(thread_id))
     active = [item for task in snapshot.tasks for item in task.interrupts]
     if len(active) != 1:
-        raise ValueError(f"thread must have exactly one active interrupt, got {len(active)}")
+        raise ValueError(
+            f"thread must have exactly one active interrupt, got {len(active)}"
+        )
     return cast(Interrupt, active[0])
 
 
@@ -225,7 +237,9 @@ def _append_event(
         message=message,
         data={} if data is None else data,
         correlation_id=(
-            state.pending_request.request_id if state.pending_request is not None else None
+            state.pending_request.request_id
+            if state.pending_request is not None
+            else None
         ),
     )
     return (*state.events, event)
@@ -251,7 +265,9 @@ def merge_charger_evidence(
     unknown = set(belief.unknown)
     conflicts = {field: list(items) for field, items in belief.conflicts.items()}
     ledger = dict(belief.ledger)
-    supporting = {field: list(ids) for field, ids in belief.supporting_evidence_ids.items()}
+    supporting = {
+        field: list(ids) for field, ids in belief.supporting_evidence_ids.items()
+    }
     observed_views = set(belief.observed_views)
     observed_views.add(observed_view)
 
@@ -269,7 +285,9 @@ def merge_charger_evidence(
             conflicts[field].append(item)
             continue
         current = confirmed.get(field) or probable.get(field)
-        if current is not None and _canonical_value(current.value) != _canonical_value(item.value):
+        if current is not None and _canonical_value(current.value) != _canonical_value(
+            item.value
+        ):
             prior_ids = supporting.get(field, [current.evidence_id])
             conflicts[field] = [*(ledger[item_id] for item_id in prior_ids), item]
             confirmed.pop(field, None)
@@ -297,7 +315,9 @@ def merge_charger_evidence(
         conflicts={field: tuple(items) for field, items in conflicts.items()},
         observed_views=frozenset(observed_views),
         ledger=ledger,
-        supporting_evidence_ids={field: tuple(ids) for field, ids in supporting.items()},
+        supporting_evidence_ids={
+            field: tuple(ids) for field, ids in supporting.items()
+        },
     )
 
 
@@ -321,11 +341,51 @@ def _render_final_answer(state: MainAgentState) -> str:
 def _router_after_plan(state: MainAgentState) -> str:
     """根据唯一 pending Action 选择下一个节点，模型文本不参与路由。"""
 
-    if state.session.status in {SessionStatus.CANCELLED, SessionStatus.COMPLETED}:
+    if state.session.status in {
+        SessionStatus.CANCELLED,
+        SessionStatus.COMPLETED,
+        SessionStatus.FAILED,
+    }:
         return "end"
     if len(state.pending_actions) != 1:
         raise ValueError("planner must leave exactly one pending action")
     return state.pending_actions[0].action_type.value
+
+
+def _governance_failure_update(
+    state: MainAgentState,
+    violation: GovernanceViolation,
+) -> dict[str, Any]:
+    """把治理拒绝变成可审计终态，不让预算耗尽表现为无限循环或 HTTP 500。"""
+
+    return {
+        "session": _session_with_status(state.session, SessionStatus.FAILED),
+        "pending_actions": (),
+        "pending_request": None,
+        "route": None,
+        "pause_kind": None,
+        "resumed_payload": None,
+        "events": _append_event(
+            state,
+            RunEventType.TASK_FAILED,
+            "治理策略拒绝继续执行任务。",
+            {
+                "code": violation.code,
+                "policy_id": state.governance_usage.policy_id,
+                "detail": str(violation),
+            },
+        ),
+    }
+
+
+def _action_capability(action: Action) -> str | None:
+    """把业务动作映射为治理 capability；纯用户交互与模板回答无需外部权限。"""
+
+    return {
+        ActionType.REQUEST_VIEW: "perception.observe",
+        ActionType.RETRIEVE_KNOWLEDGE: "specification.retrieve",
+        ActionType.RUN_RULES: "rules.usb_c",
+    }.get(action.action_type)
 
 
 def build_main_agent_graph(
@@ -339,9 +399,36 @@ def build_main_agent_graph(
     def plan_node(state: MainAgentState) -> dict[str, Any]:
         """调用规划器并记录模型或离线替身已经选择的受限 Action。"""
 
-        if state.session.status in {SessionStatus.CANCELLED, SessionStatus.COMPLETED}:
+        if state.session.status in {
+            SessionStatus.CANCELLED,
+            SessionStatus.COMPLETED,
+            SessionStatus.FAILED,
+        }:
             return {}
-        action = dependencies.planner.plan(state)
+        usage = state.governance_usage
+        try:
+            usage.ensure_iteration(state.iteration)
+            # command 是规划轮本身的预算，必须在真实模型调用前检查；否则上限已耗尽时
+            # 仍会产生一次不必要的外部调用和费用。
+            usage = usage.consume(commands=1)
+            if dependencies.planner_cost_units:
+                usage = usage.consume(
+                    capability="model.plan",
+                    external_attempts=1,
+                    cost_units=dependencies.planner_cost_units,
+                )
+            action = dependencies.planner.plan(state)
+            capability = _action_capability(action)
+            requests_observation = action.action_type is ActionType.REQUEST_VIEW
+            usage = usage.consume(
+                capability=capability,
+                observations=(1 if requests_observation else 0),
+                # 在进入 interrupt 前预留本次感知边界调用；自动 gRPC 和客户端手动
+                # 采集都属于一次外部观察尝试，超限时不会启动摄像头。
+                external_attempts=(1 if requests_observation else 0),
+            )
+        except GovernanceViolation as violation:
+            return _governance_failure_update(state, violation)
         # RealSightGraphState 规定 REQUEST_VIEW 与 pending_request 必须是同一份契约；
         # 先一起写入 checkpoint，下一节点才把会话切换为 waiting_observation。
         if action.action_type is ActionType.REQUEST_VIEW:
@@ -351,16 +438,22 @@ def build_main_agent_graph(
         else:
             pending_request = None
         return {
+            "governance_usage": usage,
             "pending_actions": (action,),
             "pending_request": pending_request,
             "missing_fields": tuple(
-                field for field in state.required_fields if field not in state.belief.confirmed
+                field
+                for field in state.required_fields
+                if field not in state.belief.confirmed
             ),
             "events": _append_event(
                 state,
                 RunEventType.MODEL_DECISION,
                 "主 Agent 已选择下一步受限动作。",
-                {"action_id": action.action_id, "action_type": action.action_type.value},
+                {
+                    "action_id": action.action_id,
+                    "action_type": action.action_type.value,
+                },
             ),
         }
 
@@ -372,7 +465,9 @@ def build_main_agent_graph(
             raise ValueError("prepare observation requires RequestViewPayload")
         request = action.payload.request
         return {
-            "session": _session_with_status(state.session, SessionStatus.WAITING_OBSERVATION),
+            "session": _session_with_status(
+                state.session, SessionStatus.WAITING_OBSERVATION
+            ),
             "pending_request": request,
             "route": GraphRoute.REQUEST_OBSERVATION,
             "pause_kind": PauseKind.OBSERVATION,
@@ -380,7 +475,10 @@ def build_main_agent_graph(
                 state,
                 RunEventType.ACTION_REQUIRED,
                 "需要一张通过质量门槛的充电器背面标签 Observation。",
-                {"request_id": request.request_id, "features": list(request.required_features)},
+                {
+                    "request_id": request.request_id,
+                    "features": list(request.required_features),
+                },
             ),
         }
 
@@ -415,6 +513,13 @@ def build_main_agent_graph(
         if observation.status is not ObservationStatus.ACCEPTED:
             raise ValueError("only accepted observations may resume this workflow")
 
+        try:
+            # 感知尝试已在 REQUEST_VIEW 规划时预留；恢复后只为 OCR 扣减一次，
+            # 超限时不会启动识别后端。
+            usage = state.governance_usage.consume(external_attempts=1)
+        except GovernanceViolation as violation:
+            return _governance_failure_update(state, violation)
+
         extraction = dependencies.vision_agent.extract(
             observation, request.required_features
         )
@@ -435,6 +540,7 @@ def build_main_agent_graph(
         intermediate = state.model_copy(update={"events": events})
         return {
             "session": _session_with_status(state.session, SessionStatus.RUNNING),
+            "governance_usage": usage,
             "belief": belief,
             "last_observation": observation,
             "pending_request": None,
@@ -462,7 +568,10 @@ def build_main_agent_graph(
                 state,
                 RunEventType.ACTION_REQUIRED,
                 "需要用户确认笔记本完整型号。",
-                {"field": "laptop_model", "laptop_target_id": state.laptop_target.target_id},
+                {
+                    "field": "laptop_model",
+                    "laptop_target_id": state.laptop_target.target_id,
+                },
             ),
         }
 
@@ -509,7 +618,10 @@ def build_main_agent_graph(
                 state,
                 RunEventType.BELIEF_UPDATED,
                 "已记录用户提供的笔记本型号，等待资料检索验证。",
-                {"evidence_id": evidence.evidence_id, "laptop_target_id": evidence.target_id},
+                {
+                    "evidence_id": evidence.evidence_id,
+                    "laptop_target_id": evidence.target_id,
+                },
             ),
         }
 
@@ -519,10 +631,17 @@ def build_main_agent_graph(
         model_evidence = state.laptop_model_evidence
         if model_evidence is None:
             raise ValueError("specification retrieval requires laptop model evidence")
+        try:
+            usage = state.governance_usage.consume(
+                capability="specification.retrieve", external_attempts=1
+            )
+        except GovernanceViolation as violation:
+            return _governance_failure_update(state, violation)
         lookup = dependencies.catalog.lookup(
             model_evidence, laptop_target_id=state.laptop_target.target_id
         )
         return {
+            "governance_usage": usage,
             "laptop_specification_evidence": lookup.evidence,
             "lookup_status": lookup.status,
             "lookup_message": lookup.message,
@@ -557,7 +676,10 @@ def build_main_agent_graph(
                 state,
                 RunEventType.RULE_COMPLETED,
                 "USB-C 兼容性规则引擎已完成，不代表真实硬件已充电成功。",
-                {"verdict": result.verdict.value, "evidence_ids": list(result.used_evidence_ids)},
+                {
+                    "verdict": result.verdict.value,
+                    "evidence_ids": list(result.used_evidence_ids),
+                },
             ),
         }
 
@@ -628,8 +750,8 @@ def resume_main_agent(
     """在发送 Command 前验证 thread、interrupt 和载荷，失败时保留原暂停可重试。"""
 
     state = get_state(graph, thread_id)
-    if state.session.status is SessionStatus.CANCELLED:
-        raise ValueError("cancelled task cannot be resumed")
+    if state.session.status in {SessionStatus.CANCELLED, SessionStatus.FAILED}:
+        raise ValueError(f"{state.session.status.value} task cannot be resumed")
     active = get_active_interrupt(graph, thread_id)
     if active.id != interrupt_id:
         raise ValueError("interrupt_id does not match current active interrupt")
@@ -668,8 +790,8 @@ def cancel_main_agent(graph: Any, *, thread_id: str, reason: str) -> MainAgentSt
     """把取消写回 checkpoint；恢复入口会拒绝已取消会话。"""
 
     state = get_state(graph, thread_id)
-    if state.session.status is SessionStatus.COMPLETED:
-        raise ValueError("completed task cannot be cancelled")
+    if state.session.status in {SessionStatus.COMPLETED, SessionStatus.FAILED}:
+        raise ValueError(f"{state.session.status.value} task cannot be cancelled")
     cancelled = state.model_copy(
         update={
             "session": _session_with_status(state.session, SessionStatus.CANCELLED),

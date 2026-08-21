@@ -55,6 +55,9 @@ class ObservationProvider(Protocol):
     def cancel(self, request_id: str, reason: str) -> bool:
         """尽力取消正在执行的观察；回放实现可安全地返回 False。"""
 
+    def close(self) -> None:
+        """幂等释放 provider 拥有的传输资源。"""
+
 
 @dataclass(frozen=True, slots=True)
 class ReplayObservationProvider:
@@ -85,6 +88,9 @@ class ReplayObservationProvider:
 
         return False
 
+    def close(self) -> None:
+        """回放器不持有连接或后台线程。"""
+
 
 @dataclass(slots=True)
 class GrpcObservationProvider:
@@ -97,15 +103,27 @@ class GrpcObservationProvider:
 
         for item in self.client.observe(request):
             if isinstance(item, PerceptionFailure):
-                raise RuntimeError(f"C++ perception failed: {item.code}: {item.message}")
-            if isinstance(item, Observation) and item.status is ObservationStatus.ACCEPTED:
+                raise RuntimeError(
+                    f"C++ perception failed: {item.code}: {item.message}"
+                )
+            if (
+                isinstance(item, Observation)
+                and item.status is ObservationStatus.ACCEPTED
+            ):
                 return item
-        raise RuntimeError("C++ perception stream ended without an accepted observation")
+        raise RuntimeError(
+            "C++ perception stream ended without an accepted observation"
+        )
 
     def cancel(self, request_id: str, reason: str) -> bool:
         """将 API 取消请求转发给第 10 章的 Cancel RPC。"""
 
         return self.client.cancel(request_id, reason)
+
+    def close(self) -> None:
+        """关闭底层 gRPC channel。"""
+
+        self.client.close()
 
 
 class ScriptedLabelRecognizer:

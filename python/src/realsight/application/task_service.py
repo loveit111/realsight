@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import sqlite3
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -40,7 +40,8 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 
 from realsight.compatibility import LocalSpecificationCatalog, UsbCCompatibilityRules
 from realsight.contracts import SessionStatus
-from realsight.vision import VisionEvidenceAgent
+from realsight.governance import GovernanceUsage
+from realsight.vision import TextRecognizer, VisionEvidenceAgent
 from realsight.workflow import (
     DeterministicPlanner,
     MainAgentDependencies,
@@ -70,6 +71,7 @@ class TaskService:
     observation_provider: ObservationProvider | None = None
     sqlite_connection: sqlite3.Connection | None = None
     max_automatic_observations: int = 4
+    governance_usage: GovernanceUsage = field(default_factory=GovernanceUsage)
 
     @classmethod
     def with_memory(
@@ -77,11 +79,18 @@ class TaskService:
         dependencies: MainAgentDependencies,
         *,
         observation_provider: ObservationProvider | None = None,
+        governance_usage: GovernanceUsage | None = None,
     ) -> TaskService:
         """为测试和离线 Demo 构建内存 checkpoint 服务。"""
 
         graph, _ = build_main_agent_graph(dependencies)
-        return cls(graph=graph, observation_provider=observation_provider)
+        usage = governance_usage or GovernanceUsage()
+        return cls(
+            graph=graph,
+            observation_provider=observation_provider,
+            max_automatic_observations=usage.max_observations,
+            governance_usage=usage,
+        )
 
     @classmethod
     def with_sqlite(
@@ -90,22 +99,34 @@ class TaskService:
         dependencies: MainAgentDependencies,
         *,
         observation_provider: ObservationProvider | None = None,
+        governance_usage: GovernanceUsage | None = None,
     ) -> TaskService:
         """为单进程 API 打开 SQLite checkpoint；连接随 service 生命周期关闭。"""
 
         database_path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(database_path, timeout=5.0, check_same_thread=False)
+        connection = sqlite3.connect(
+            database_path, timeout=5.0, check_same_thread=False
+        )
         connection.execute("PRAGMA busy_timeout = 5000")
         saver = SqliteSaver(connection, serde=make_checkpoint_serializer())
         graph, _ = build_main_agent_graph(dependencies, checkpointer=saver)
+        usage = governance_usage or GovernanceUsage()
         return cls(
             graph=graph,
             observation_provider=observation_provider,
             sqlite_connection=connection,
+            max_automatic_observations=usage.max_observations,
+            governance_usage=usage,
         )
 
     @staticmethod
-    def default_dependencies(project_root: Path, *, planner: Planner | None = None) -> MainAgentDependencies:
+    def default_dependencies(
+        project_root: Path,
+        *,
+        planner: Planner | None = None,
+        recognizer: TextRecognizer | None = None,
+        planner_cost_units: int = 0,
+    ) -> MainAgentDependencies:
         """构建诚实的服务器默认依赖；未配置 OCR 时工作流只会报告 gap。"""
 
         return MainAgentDependencies(
@@ -113,8 +134,9 @@ class TaskService:
             catalog=LocalSpecificationCatalog.from_json_file(
                 project_root / "test-data" / "ch12" / "laptop-specifications.json"
             ),
-            vision_agent=VisionEvidenceAgent(UnavailableTextRecognizer()),
+            vision_agent=VisionEvidenceAgent(recognizer or UnavailableTextRecognizer()),
             rules=UsbCCompatibilityRules(),
+            planner_cost_units=planner_cost_units,
         )
 
     def create_task(
@@ -133,6 +155,7 @@ class TaskService:
             charger_target_id=charger_target_id,
             laptop_target_id=laptop_target_id,
             intent=intent,
+            governance_usage=self.governance_usage,
         )
         self.graph.invoke(state, config=graph_config(created_session_id))
         return self._drive_automatic_observations(self.get_task(created_session_id))
@@ -199,13 +222,21 @@ class TaskService:
                 self.graph,
                 thread_id=state.session.thread_id,
                 interrupt_id=interrupt_id,
-                payload={"kind": "observation", "observation": observation.model_dump(mode="json")},
+                payload={
+                    "kind": "observation",
+                    "observation": observation.model_dump(mode="json"),
+                },
             )
+        if state.session.status is not SessionStatus.WAITING_OBSERVATION:
+            return state
         raise RuntimeError("automatic observation limit reached")
 
     def close(self) -> None:
         """关闭由 with_sqlite 创建的连接；内存服务没有外部资源需要释放。"""
 
+        if self.observation_provider is not None:
+            self.observation_provider.close()
+            self.observation_provider = None
         if self.sqlite_connection is not None:
             self.sqlite_connection.close()
             self.sqlite_connection = None

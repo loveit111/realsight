@@ -48,6 +48,7 @@ from realsight.contracts import (
     RealSightGraphState,
     StrictContract,
 )
+from realsight.governance import GovernanceUsage
 
 
 class PauseKind(StrEnum):
@@ -61,6 +62,7 @@ class MainAgentState(RealSightGraphState):
     """第 13 章的完整业务 checkpoint，扩展而不改名既有核心状态。"""
 
     laptop_target: RealityObject
+    governance_usage: GovernanceUsage = Field(default_factory=GovernanceUsage)
     laptop_model_evidence: Evidence | None = None
     laptop_specification_evidence: tuple[Evidence, ...] = ()
     lookup_status: LookupStatus | None = None
@@ -100,7 +102,10 @@ class MainAgentState(RealSightGraphState):
         if self.compatibility_result is not None:
             if self.compatibility_result.charger_target_id != self.target.target_id:
                 raise ValueError("compatibility result charger target is inconsistent")
-            if self.compatibility_result.laptop_target_id != self.laptop_target.target_id:
+            if (
+                self.compatibility_result.laptop_target_id
+                != self.laptop_target.target_id
+            ):
                 raise ValueError("compatibility result laptop target is inconsistent")
         if self.final_answer is not None and self.compatibility_result is None:
             raise ValueError("final answer requires a deterministic rule result")

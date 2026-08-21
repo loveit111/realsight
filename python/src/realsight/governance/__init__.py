@@ -3,14 +3,19 @@ RealSight 运行治理层的包入口。
 
 整体逻辑
 --------
-本层负责权限、幂等、预算、超时、重试和审计，不负责 Agent 规划。第 8 章只确定模块
-所有权；第 7 章教学实现仍保留在 examples，待接口稳定后再按职责拆入本包。
+本层负责 capability 与可持久化预算，不负责 Agent 规划。第 7 章教学实现仍保留在
+examples；正式主图使用本包的 ``GovernanceUsage`` 执行迭代、命令、观察、外部尝试和
+成本上限。
 
 技术栈
 ------
-未来复用 asyncio、Pydantic 与 SQLite；本入口当前不执行任何副作用。
+Pydantic 严格不可变契约与 LangGraph/SQLite checkpoint；导入本包不执行副作用。
 
 调用流程
 --------
-application/workflow -> governance middleware -> 被治理的 services operation -> 审计结果。
+application 配置 -> GovernanceUsage -> workflow.consume -> 新快照或 GovernanceViolation。
 """
+
+from .policy import DEFAULT_CAPABILITIES, GovernanceUsage, GovernanceViolation
+
+__all__ = ["DEFAULT_CAPABILITIES", "GovernanceUsage", "GovernanceViolation"]

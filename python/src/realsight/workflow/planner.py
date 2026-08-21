@@ -200,7 +200,9 @@ def tool_call_to_action(
             target_id=state.target.target_id,
             action_type=ActionType.RETRIEVE_KNOWLEDGE,
             reason=reason,
-            payload=RetrieveKnowledgePayload(query=str(state.laptop_model_evidence.value)),
+            payload=RetrieveKnowledgePayload(
+                query=str(state.laptop_model_evidence.value)
+            ),
         )
     if tool_name == "run_rules":
         return Action(
@@ -216,7 +218,9 @@ def tool_call_to_action(
             target_id=state.target.target_id,
             action_type=ActionType.GENERATE_ANSWER,
             reason=reason,
-            payload=GenerateAnswerPayload(conclusion_type="evidence_bound_usb_c_result"),
+            payload=GenerateAnswerPayload(
+                conclusion_type="evidence_bound_usb_c_result"
+            ),
         )
     raise PlannerError(f"unknown planner tool: {tool_name}")
 
@@ -234,7 +238,9 @@ class DeterministicPlanner:
         if ActionType.REQUEST_VIEW in choices:
             missing = set(_RULE_FIELDS) - _confirmed_charger_fields(state)
             features = tuple(
-                field for field in _VISION_FIELDS if field == "charger_label" or field in missing
+                field
+                for field in _VISION_FIELDS
+                if field == "charger_label" or field in missing
             )
             return _request_action(
                 state,
@@ -291,7 +297,12 @@ def _tool_schema(tool_name: str) -> dict[str, Any]:
     elif tool_name == "ask_user":
         common["properties"]["question"] = {"type": "string", "minLength": 1}
         common["required"].append("question")
-    return {"type": "function", "name": tool_name, "description": tool_name, "parameters": common}
+    return {
+        "type": "function",
+        "name": tool_name,
+        "description": tool_name,
+        "parameters": common,
+    }
 
 
 def _state_summary(state: MainAgentState) -> dict[str, Any]:
@@ -366,7 +377,9 @@ class OpenAIPlanner:
         try:
             arguments = json.loads(call.arguments)
         except (TypeError, json.JSONDecodeError) as exc:
-            raise PlannerError("OpenAI planner returned invalid function arguments") from exc
+            raise PlannerError(
+                "OpenAI planner returned invalid function arguments"
+            ) from exc
         if not isinstance(arguments, dict):
             raise PlannerError("OpenAI planner function arguments must be an object")
         return tool_call_to_action(state, call.name, arguments)
