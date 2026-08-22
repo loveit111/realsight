@@ -146,7 +146,8 @@ gRPC 联调；普通 CI 不安装 OCR extra。
 ## 学习与作品集
 
 - [项目总览](docs/PROJECT-OVERVIEW.md)：从问题、数据流到 14 章知识地图。
-- [四周学习与答辩路线](docs/PORTFOLIO-ROADMAP.md)：每天的输入、动作、产物和验收。
+- [24 天精读实战课](docs/course/README.md)：面向零基础的逐日概念、源码、实验、陷阱与答辩教案。
+- [四周学习与作品集总路线](docs/PORTFOLIO-ROADMAP.md)：掌握层级、简历门槛与交付总览。
 - [模块地图](docs/MODULE-MAP.md)：每个文件的输入、输出和责任边界。
 - [真实设备评测手册](docs/REAL-DEVICE-VALIDATION.md)：30 样本矩阵和数据格式。
 - [项目审计](docs/FINAL-PROJECT-AUDIT.md)：已验证能力、风险和生产化缺口。
